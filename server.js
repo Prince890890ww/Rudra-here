@@ -48,8 +48,8 @@ app.get('/chat', async (req, res) => {
     console.log(`Server for Rudra here: Received chat message from ${senderID}: "${userMessage}"`);
 
     try {
-        // Use the gemini-1.0-pro model for chat
-        const model = genAI.getGenerativeModel({ model: "gemini-1.0-pro" }); 
+        // Use the gemini-pro model for chat (updated from gemini-1.0-pro)
+        const model = genAI.getGenerativeModel({ model: "gemini-pro" }); // <<<--- यह लाइन अपडेट की गई है
         
         // Start a new chat session for each request.
         // If you need persistent chat history, you'd have to implement
