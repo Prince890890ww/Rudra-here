@@ -3,6 +3,9 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 const cors = require('cors');
 require('dotenv').config(); // Load environment variables from .env file for local development
 
+// codeGenerator.js को इम्पोर्ट करें
+const codeGenerator = require('./codeGenerator'); 
+
 const app = express();
 const port = process.env.PORT || 3000; // Render will provide PORT, else use 3000 for local
 
@@ -14,7 +17,6 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true })); 
 
 // --- Google Gemini AI Configuration ---
-// Your API Key will be loaded from Render's environment variables or your local .env file
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY; 
 
 let genAI;
@@ -24,21 +26,16 @@ if (GEMINI_API_KEY && GEMINI_API_KEY !== "YOUR_ACTUAL_GEMINI_API_KEY_HERE") {
         console.log("Server for Rudra here: Google Gemini AI client successfully initialized.");
     } catch (error) {
         console.error("Server for Rudra here: Error initializing Google Gemini AI client:", error.message);
-        // If API key is invalid or initialization fails, the server should not start
-        // In a production environment, you might want more robust error handling
         process.exit(1); 
     }
 } else {
     console.error("Server for Rudra here: GEMINI_API_KEY environment variable is not set or is default. Please set it.");
-    process.exit(1); // Exit if API key is missing
+    process.exit(1); 
 }
 
 // --- API Endpoint: / ---
-// यह एंडपॉइंट आपके बॉट से JSON बॉडी के साथ POST रिक्वेस्ट प्राप्त करेगा
 app.post('/', async (req, res) => {
-    // रिक्वेस्ट बॉडी से प्रॉम्प्ट प्राप्त करें (क्योंकि बॉट अब JSON बॉडी में 'prompt' भेज रहा है)
     const userMessage = req.body.prompt; 
-    // Optional: Get senderID if your bot sends it for history management
     const senderID = req.body.senderID || 'anonymous_user'; 
 
     if (!userMessage) {
@@ -51,64 +48,83 @@ app.post('/', async (req, res) => {
     let responseText = '';
     let modelUsed = '';
 
+    // --- कोड जनरेशन कमांड की जांच करें ---
+    const CODE_GEN_PREFIX = "CODE_GEN_REQUEST:";
+    const isExplicitCodeGenerationRequest = userMessage.startsWith(CODE_GEN_PREFIX);
+
+    let actualPromptForAI = userMessage;
+    if (isExplicitCodeGenerationRequest) {
+        actualPromptForAI = userMessage.slice(CODE_GEN_PREFIX.length).trim();
+        console.log(`Server for Rudra here: Explicit code request detected. Actual prompt: "${actualPromptForAI}"`);
+    }
+
     try {
-        // --- पहले gemini-1.5-flash के साथ प्रयास करें ---
-        console.log("Server for Rudra here: Attempting with gemini-1.5-flash...");
-        const flashModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash" }); 
-        const flashChat = flashModel.startChat({
-            generationConfig: {
-                maxOutputTokens: 200, // प्रतिक्रिया की लंबाई सीमित करें
-                temperature: 0.7,     // रचनात्मकता का स्तर
-            },
-        });
-        const flashResult = await flashChat.sendMessage(userMessage);
-        responseText = flashResult.response.text();
-        modelUsed = 'gemini-1.5-flash';
-
-        // फ्लैश मॉडल से खाली प्रतिक्रिया के लिए बुनियादी जांच (हालांकि API आमतौर पर त्रुटि देता है)
-        if (!responseText || responseText.trim() === '') {
-            throw new Error("Flash model returned empty response, trying Pro.");
-        }
-
-    } catch (flashError) {
-        console.warn(`Server for Rudra here: Flash model failed (${flashError.message}), attempting with gemini-1.5-pro...`);
-        // --- gemini-1.5-pro पर फ़ॉलबैक करें ---
-        try {
-            const proModel = genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
-            const proChat = proModel.startChat({
+        if (isExplicitCodeGenerationRequest) {
+            // यदि स्पष्ट कोड जनरेशन रिक्वेस्ट है, तो codeGenerator का उपयोग करें
+            console.log("Server for Rudra here: Using codeGenerator for explicit code request.");
+            const codeResponse = await codeGenerator.generateCode(actualPromptForAI, genAI);
+            responseText = codeResponse.text;
+            modelUsed = codeResponse.model;
+        } else {
+            // अन्यथा, सामान्य चैट फ़ॉलबैक लॉजिक का उपयोग करें
+            // --- पहले gemini-1.5-flash के साथ प्रयास करें ---
+            console.log("Server for Rudra here: Attempting with gemini-1.5-flash for general chat...");
+            const flashModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash" }); 
+            const flashChat = flashModel.startChat({
                 generationConfig: {
-                    maxOutputTokens: 200,
-                    temperature: 0.7,
+                    maxOutputTokens: 200, 
+                    temperature: 0.7,     
                 },
             });
-            const proResult = await proChat.sendMessage(userMessage);
-            responseText = proResult.response.text();
-            modelUsed = 'gemini-1.5-pro';
+            const flashResult = await flashChat.sendMessage(userMessage); // यहां पूरा userMessage भेजें
+            responseText = flashResult.response.text();
+            modelUsed = 'gemini-1.5-flash';
 
-            // प्रो मॉडल से खाली प्रतिक्रिया के लिए जांच
             if (!responseText || responseText.trim() === '') {
-                throw new Error("Pro model also returned empty response.");
+                throw new Error("Flash model returned empty response, trying Pro.");
             }
+        }
 
-        } catch (proError) {
-            console.error("Server for Rudra here: Both Flash and Pro models failed.", proError);
-            // अंतिम त्रुटि हैंडलिंग के लिए बाहरी कैच ब्लॉक में त्रुटि को फिर से फेंकें
-            throw proError;
+    } catch (modelError) { // त्रुटि हैंडलिंग को स्पष्ट किया गया
+        if (isExplicitCodeGenerationRequest) {
+            console.error("Server for Rudra here: Error during explicit code generation:", modelError);
+        } else {
+            console.warn(`Server for Rudra here: Flash model failed (${modelError.message}), attempting with gemini-1.5-pro for general chat...`);
+        }
+        
+        // --- gemini-1.5-pro पर फ़ॉलबैक करें (केवल सामान्य चैट के लिए) ---
+        if (!isExplicitCodeGenerationRequest) { // केवल तभी जब यह सामान्य चैट हो
+            try {
+                const proModel = genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
+                const proChat = proModel.startChat({
+                    generationConfig: {
+                        maxOutputTokens: 200,
+                        temperature: 0.7,
+                    },
+                });
+                const proResult = await proChat.sendMessage(userMessage); // यहां पूरा userMessage भेजें
+                responseText = proResult.response.text();
+                modelUsed = 'gemini-1.5-pro';
+
+                if (!responseText || responseText.trim() === '') {
+                    throw new Error("Pro model also returned empty response.");
+                }
+            } catch (proFallbackError) {
+                console.error("Server for Rudra here: Both Flash and Pro models failed for general chat.", proFallbackError);
+                throw proFallbackError; // बाहरी कैच ब्लॉक में फेंकें
+            }
+        } else {
+            // यदि यह एक स्पष्ट कोड रिक्वेस्ट थी और codeGenerator विफल रहा, तो त्रुटि को आगे बढ़ाएं
+            throw modelError; 
         }
     }
 
-    // यदि हम यहां पहुंचे, तो फ्लैश या प्रो में से किसी एक द्वारा सफलतापूर्वक प्रतिक्रिया उत्पन्न की गई
     console.log(`Server for Rudra here: Gemini AI responded using ${modelUsed}:`, responseText);
     res.json({ text: responseText }); 
 
-    // --- समग्र त्रुटियों के लिए मौजूदा कैच ब्लॉक ---
-    // यह कैच ब्लॉक अब केवल तभी चलेगा जब दोनों मॉडल विफल हो जाएं
-    // या कोई अन्य अप्रत्याशित सर्वर-साइड त्रुटि हो।
-} catch (error) {
-    console.error("Server for Rudra here: Error getting response from Gemini AI:", error);
-    // डीबग करने में मदद करने के लिए अधिक विस्तृत त्रुटि जानकारी प्रदान करें
+} catch (error) { // समग्र त्रुटि हैंडलिंग
+    console.error("Server for Rudra here: Final Error getting response from Gemini AI:", error);
     if (error.response && error.response.data) {
-        // यदि उपलब्ध हो तो Google API से पूर्ण त्रुटि प्रतिक्रिया लॉग करें
         console.error("Server for Rudra here: Google API Error Response Data:", error.response.data);
         res.status(error.response.status || 500).json({ 
             error: "Gemini API error occurred.", 
@@ -124,7 +140,6 @@ app.post('/', async (req, res) => {
 });
 
 // --- Basic Root Endpoint ---
-// यह एंडपॉइंट रूट URL पर GET रिक्वेस्ट के लिए है, आमतौर पर स्वास्थ्य जांच या एक साधारण संदेश के लिए।
 app.get('/', (req, res) => {
     res.send('My Custom Gemini API Proxy Server for Rudra here is running!');
 });
