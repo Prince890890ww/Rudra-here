@@ -48,49 +48,83 @@ app.post('/', async (req, res) => {
 
     console.log(`Server for Rudra here: Received chat message from ${senderID}: "${userMessage}"`);
 
+    let responseText = '';
+    let modelUsed = '';
+
     try {
-        // मॉडल को gemini-1.5-flash में बदला गया है
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" }); 
-        
-        // Start a new chat session for each request.
-        // If you need persistent chat history, you'd have to implement
-        // a server-side storage (e.g., in-memory map, database) for chat histories per senderID.
-        // For now, we'll send the entire 'fullPrompt' from the bot as a single message.
-        const chat = model.startChat({
+        // --- पहले gemini-1.5-flash के साथ प्रयास करें ---
+        console.log("Server for Rudra here: Attempting with gemini-1.5-flash...");
+        const flashModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash" }); 
+        const flashChat = flashModel.startChat({
             generationConfig: {
-                maxOutputTokens: 200, // Limit response length
-                temperature: 0.7,     // Creativity level
+                maxOutputTokens: 200, // प्रतिक्रिया की लंबाई सीमित करें
+                temperature: 0.7,     // रचनात्मकता का स्तर
             },
         });
+        const flashResult = await flashChat.sendMessage(userMessage);
+        responseText = flashResult.response.text();
+        modelUsed = 'gemini-1.5-flash';
 
-        const result = await chat.sendMessage(userMessage);
-        const responseText = result.response.text();
+        // फ्लैश मॉडल से खाली प्रतिक्रिया के लिए बुनियादी जांच (हालांकि API आमतौर पर त्रुटि देता है)
+        if (!responseText || responseText.trim() === '') {
+            throw new Error("Flash model returned empty response, trying Pro.");
+        }
 
-        console.log("Server for Rudra here: Gemini AI responded with:", responseText);
-        // Send back the reply in JSON format with 'text' property, as Riya bot expects
-        res.json({ text: responseText }); 
-
-    } catch (error) {
-        console.error("Server for Rudra here: Error getting response from Gemini AI:", error);
-        // Provide more detailed error information to help debug
-        if (error.response && error.response.data) {
-            // Log full error response from Google API if available
-            console.error("Server for Rudra here: Google API Error Response Data:", error.response.data);
-            res.status(error.response.status || 500).json({ 
-                error: "Gemini API error occurred.", 
-                details: error.response.data.message || error.message 
+    } catch (flashError) {
+        console.warn(`Server for Rudra here: Flash model failed (${flashError.message}), attempting with gemini-1.5-pro...`);
+        // --- gemini-1.5-pro पर फ़ॉलबैक करें ---
+        try {
+            const proModel = genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
+            const proChat = proModel.startChat({
+                generationConfig: {
+                    maxOutputTokens: 200,
+                    temperature: 0.7,
+                },
             });
-        } else {
-            res.status(500).json({ 
-                error: "Internal server error occurred.", 
-                details: error.message 
-            });
+            const proResult = await proChat.sendMessage(userMessage);
+            responseText = proResult.response.text();
+            modelUsed = 'gemini-1.5-pro';
+
+            // प्रो मॉडल से खाली प्रतिक्रिया के लिए जांच
+            if (!responseText || responseText.trim() === '') {
+                throw new Error("Pro model also returned empty response.");
+            }
+
+        } catch (proError) {
+            console.error("Server for Rudra here: Both Flash and Pro models failed.", proError);
+            // अंतिम त्रुटि हैंडलिंग के लिए बाहरी कैच ब्लॉक में त्रुटि को फिर से फेंकें
+            throw proError;
         }
     }
+
+    // यदि हम यहां पहुंचे, तो फ्लैश या प्रो में से किसी एक द्वारा सफलतापूर्वक प्रतिक्रिया उत्पन्न की गई
+    console.log(`Server for Rudra here: Gemini AI responded using ${modelUsed}:`, responseText);
+    res.json({ text: responseText }); 
+
+    // --- समग्र त्रुटियों के लिए मौजूदा कैच ब्लॉक ---
+    // यह कैच ब्लॉक अब केवल तभी चलेगा जब दोनों मॉडल विफल हो जाएं
+    // या कोई अन्य अप्रत्याशित सर्वर-साइड त्रुटि हो।
+} catch (error) {
+    console.error("Server for Rudra here: Error getting response from Gemini AI:", error);
+    // डीबग करने में मदद करने के लिए अधिक विस्तृत त्रुटि जानकारी प्रदान करें
+    if (error.response && error.response.data) {
+        // यदि उपलब्ध हो तो Google API से पूर्ण त्रुटि प्रतिक्रिया लॉग करें
+        console.error("Server for Rudra here: Google API Error Response Data:", error.response.data);
+        res.status(error.response.status || 500).json({ 
+            error: "Gemini API error occurred.", 
+            details: error.response.data.message || error.message 
+        });
+    } else {
+        res.status(500).json({ 
+            error: "Internal server error occurred.", 
+            details: error.message 
+        });
+    }
+}
 });
 
 // --- Basic Root Endpoint ---
-// This endpoint is for GET requests to the root URL, typically for health checks or a simple message.
+// यह एंडपॉइंट रूट URL पर GET रिक्वेस्ट के लिए है, आमतौर पर स्वास्थ्य जांच या एक साधारण संदेश के लिए।
 app.get('/', (req, res) => {
     res.send('My Custom Gemini API Proxy Server for Rudra here is running!');
 });
