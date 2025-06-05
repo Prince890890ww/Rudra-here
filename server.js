@@ -122,22 +122,7 @@ app.post('/', async (req, res) => {
     console.log(`Server for Rudra here: Gemini AI responded using ${modelUsed}:`, responseText);
     res.json({ text: responseText }); 
 
-} catch (error) { // समग्र त्रुटि हैंडलिंग
-    console.error("Server for Rudra here: Final Error getting response from Gemini AI:", error);
-    if (error.response && error.response.data) {
-        console.error("Server for Rudra here: Google API Error Response Data:", error.response.data);
-        res.status(error.response.status || 500).json({ 
-            error: "Gemini API error occurred.", 
-            details: error.response.data.message || error.message 
-        });
-    } else {
-        res.status(500).json({ 
-            error: "Internal server error occurred.", 
-            details: error.message 
-        });
-    }
-}
-});
+}); // <--- YE AAKHRI CURLY BRACE app.post function ko band karta hai. Iske baad koi catch block nahin hona chahiye.
 
 // --- Basic Root Endpoint ---
 app.get('/', (req, res) => {
@@ -148,4 +133,3 @@ app.get('/', (req, res) => {
 app.listen(port, () => {
     console.log(`My Custom Gemini API Proxy Server for Rudra here listening on port ${port}`);
 });
-
