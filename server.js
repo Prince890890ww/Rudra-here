@@ -1,4 +1,4 @@
-Const express = require('express');
+const express = require('express');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const cors = require('cors');
 require('dotenv').config(); // Load environment variables from .env file for local development
