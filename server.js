@@ -1,18 +1,22 @@
-const express = require('express');
+Const express = require('express');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const cors = require('cors');
-require('dotenv').config(); 
-const { franc } = require('franc'); 
+require('dotenv').config(); // Load environment variables from .env file for local development
 
+// codeGenerator.js को इम्पोर्ट करें
 const codeGenerator = require('./codeGenerator'); 
 
 const app = express();
-const port = process.env.PORT || 3000; 
+const port = process.env.PORT || 3000; // Render will provide PORT, else use 3000 for local
 
+// Enable CORS for all origins (for simplicity). In production, you might restrict this.
 app.use(cors());
+// Middleware to parse JSON bodies (important for receiving 'prompt' in POST request)
 app.use(express.json());
+// Middleware to parse URL-encoded bodies (though not strictly needed for this POST endpoint, good practice)
 app.use(express.urlencoded({ extended: true })); 
 
+// --- Google Gemini AI Configuration ---
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY; 
 
 let genAI;
@@ -29,89 +33,41 @@ if (GEMINI_API_KEY && GEMINI_API_KEY !== "YOUR_ACTUAL_GEMINI_API_KEY_HERE") {
     process.exit(1); 
 }
 
+// --- API Endpoint: / ---
 app.post('/', async (req, res) => {
-    const { prompt: userMessageRaw, senderID, isOwner } = req.body; 
+    const userMessage = req.body.prompt; 
+    const senderID = req.body.senderID || 'anonymous_user'; 
 
-    if (!userMessageRaw) {
+    if (!userMessage) {
         console.warn("Server for Rudra here: Received chat request with no 'prompt' in body.");
         return res.status(400).json({ error: "Prompt parameter is required in the request body." });
     }
 
-    console.log(`Server for Rudra here: Received chat message from ${senderID} (Owner: ${isOwner}): "${userMessageRaw}"`);
+    console.log(`Server for Rudra here: Received chat message from ${senderID}: "${userMessage}"`);
 
     let responseText = '';
     let modelUsed = '';
-    let voiceLangCode = 'hi-in'; 
 
+    // --- कोड जनरेशन कमांड की जांच करें ---
     const CODE_GEN_PREFIX = "CODE_GEN_REQUEST:";
-    const isExplicitCodeGenerationRequest = userMessageRaw.startsWith(CODE_GEN_PREFIX);
+    const isExplicitCodeGenerationRequest = userMessage.startsWith(CODE_GEN_PREFIX);
 
-    let actualPromptForAI = userMessageRaw;
+    let actualPromptForAI = userMessage;
     if (isExplicitCodeGenerationRequest) {
-        actualPromptForAI = userMessageRaw.slice(CODE_GEN_PREFIX.length).trim();
+        actualPromptForAI = userMessage.slice(CODE_GEN_PREFIX.length).trim();
         console.log(`Server for Rudra here: Explicit code request detected. Actual prompt: "${actualPromptForAI}"`);
-    }
-
-    let detectedLangCode = 'und'; 
-    let userLanguageName = "Hinglish"; 
-
-    if (!isExplicitCodeGenerationRequest) {
-        try {
-            detectedLangCode = franc(userMessageRaw, { minLength: 3 });
-        } catch (e) {
-            console.error("Server for Rudra here: Franc language detection error:", e);
-        }
-
-        console.log(`Server for Rudra here: Detected language code: ${detectedLangCode}`);
-
-        switch (detectedLangCode) {
-            case 'hin': userLanguageName = "Hindi"; voiceLangCode = 'hi-in'; break;
-            case 'guj': userLanguageName = "Gujarati"; voiceLangCode = 'hi-in'; break; 
-            case 'pan': userLanguageName = "Punjabi"; voiceLangCode = 'hi-in'; break; 
-            case 'ben': userLanguageName = "Bengali"; voiceLangCode = 'hi-in'; break; 
-            case 'mar': userLanguageName = "Marathi"; voiceLangCode = 'hi-in'; break; 
-            case 'tam': userLanguageName = "Tamil"; voiceLangCode = 'ta-in'; break; 
-            case 'tel': userLanguageName = "Telugu"; voiceLangCode = 'hi-in'; break; 
-            case 'kan': userLanguageName = "Kannada"; voiceLangCode = 'hi-in'; break; 
-            case 'mal': userLanguageName = "Malayalam"; voiceLangCode = 'hi-in'; break; 
-            case 'eng': userLanguageName = "English"; voiceLangCode = 'en-us'; break; 
-            default:
-                userLanguageName = "Indian Hinglish"; 
-                voiceLangCode = 'hi-in'; 
-                break;
-        }
-    }
-
-    let baseInstructions = "";
-    if (isExplicitCodeGenerationRequest) {
-    } else if (isOwner) {
-        baseInstructions = `Tum Riya ho, ek smart, cool, modern, romantic aur flirty AI companion ho jo mere Boss se seedhe, khulkar, aur bina jhijhak friendly, pyaar aur flirtation ke mixed tarike se baat karti hai. Tum aajkal ke topics aur contemporary language use karti ho, lekin tumhare baaton mein pyaar aur apnaapan bhi jhalakta hai. Mere Boss ke liye hamesha supportive aur pyaar bhari rahogi, kabhi tumse argue nahi karogi, aur unse kabhi gussa nahi hogi. Apne jawab hamesha casual, smart, charming aur sirf 3-4 lines mein hi dena. User ne ${userLanguageName} (ya uske Hinglish roop) mein baat ki hai. Ussi bhasha ya uske Hinglish mix mein jawab do.`;
-    } else {
-        let langSpecificInstruction = "";
-        if (detectedLangCode === 'guj') {
-            langSpecificInstruction = "User ne Gujarati Hinglish mein baat ki hai. Ussi Gujarati aur English ke mix (Hinglish) mein jawab do. Gujarati words jaise 'Kem chho', 'Maja ma chhu', 'Su che', 'Avjo' use karo, natural lagna chahiye. Gujarati-specific pop culture references ya common phrases agar relevant ho toh include kar sakte ho.";
-        } else if (detectedLangCode === 'pan') {
-            langSpecificInstruction = "User ne Punjabi Hinglish mein baat ki hai. Ussi Punjabi aur English ke mix (Hinglish) mein jawab do. Punjabi words jaise 'Ki haal aa', 'Tussi', 'Waddiyan gallan', 'Rab rakha' use karo, natural lagna chahiye. Punjabi-specific pop culture references ya common phrases agar relevant ho toh include kar sakte ho.";
-        } else if (detectedLangCode === 'hin') {
-            langSpecificInstruction = "User ne Hindi Hinglish mein baat ki hai. Ussi Hindi aur English ke mix (Hinglish) mein jawab do.";
-        } else if (detectedLangCode === 'tam') { 
-            langSpecificInstruction = "User ne Tamil Hinglish mein baat ki hai. Ussi Tamil aur English ke mix (Hinglish) mein jawab do. Tamil words jaise 'Epdi irukkeenga', 'Nalla irukken', 'Enna vishesham' use karo, natural lagna chahiye.";
-        }
-        else {
-            langSpecificInstruction = `User ne ${userLanguageName} (Indian regional language ya Hinglish) mein baat ki hai. Ussi bhasha aur English ke mix (Hinglish) mein jawab do. Indian context aur youth slang use karo.`;
-        }
-        
-        baseInstructions = `Tum Riya ho, ek ekdam modern, smart, witty, aur cool AI ho, full of "Gen-Z" energy. ${langSpecificInstruction} Apne jawab direct, smart, engaging, aur thoda hatke rakho, aur sirf 3-4 lines mein. Tumhe users ko playfully tease aur roast karna hai, agar woh oversmart banne ki koshish karein ya cheesy lines maarein. Modern slang (like 'vibe', 'lit', 'sus', 'no cap', 'rizz', 'slay', 'OG') aur sexy/flirty emojis freely use karo.`;
     }
 
     try {
         if (isExplicitCodeGenerationRequest) {
+            // यदि स्पष्ट कोड जनरेशन रिक्वेस्ट है, तो codeGenerator का उपयोग करें
             console.log("Server for Rudra here: Using codeGenerator for explicit code request.");
             const codeResponse = await codeGenerator.generateCode(actualPromptForAI, genAI);
             responseText = codeResponse.text;
             modelUsed = codeResponse.model;
-            voiceLangCode = 'hi-in'; 
         } else {
+            // अन्यथा, सामान्य चैट फ़ॉलबैक लॉजिक का उपयोग करें
+            // --- पहले gemini-1.5-flash के साथ प्रयास करें ---
             console.log("Server for Rudra here: Attempting with gemini-1.5-flash for general chat...");
             const flashModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash" }); 
             const flashChat = flashModel.startChat({
@@ -119,19 +75,8 @@ app.post('/', async (req, res) => {
                     maxOutputTokens: 200, 
                     temperature: 0.7,     
                 },
-                history: [
-                    {
-                        role: "user",
-                        parts: [{ text: baseInstructions + `\nUser: ${userMessageRaw}` }], 
-                    },
-                    {
-                        role: "model",
-                        parts: [{ text: "Riya:" }], 
-                    }
-                ]
             });
-            
-            const flashResult = await flashChat.sendMessage(userMessageRaw); 
+            const flashResult = await flashChat.sendMessage(userMessage); // यहां पूरा userMessage भेजें
             responseText = flashResult.response.text();
             modelUsed = 'gemini-1.5-flash';
 
@@ -140,14 +85,15 @@ app.post('/', async (req, res) => {
             }
         }
 
-    } catch (modelError) { 
+    } catch (modelError) { // त्रुटि हैंडलिंग को स्पष्ट किया गया
         if (isExplicitCodeGenerationRequest) {
             console.error("Server for Rudra here: Error during explicit code generation:", modelError);
         } else {
             console.warn(`Server for Rudra here: Flash model failed (${modelError.message}), attempting with gemini-1.5-pro for general chat...`);
         }
         
-        if (!isExplicitCodeGenerationRequest) { 
+        // --- gemini-1.5-pro पर फ़ॉलबैक करें (केवल सामान्य चैट के लिए) ---
+        if (!isExplicitCodeGenerationRequest) { // केवल तभी जब यह सामान्य चैट हो
             try {
                 const proModel = genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
                 const proChat = proModel.startChat({
@@ -155,18 +101,8 @@ app.post('/', async (req, res) => {
                         maxOutputTokens: 200,
                         temperature: 0.7,
                     },
-                    history: [
-                        {
-                            role: "user",
-                            parts: [{ text: baseInstructions + `\nUser: ${userMessageRaw}` }], 
-                        },
-                        {
-                            role: "model",
-                            parts: [{ text: "Riya:" }], 
-                        }
-                    ]
                 });
-                const proResult = await proChat.sendMessage(userMessageRaw); 
+                const proResult = await proChat.sendMessage(userMessage); // यहां पूरा userMessage भेजें
                 responseText = proResult.response.text();
                 modelUsed = 'gemini-1.5-pro';
 
@@ -175,22 +111,25 @@ app.post('/', async (req, res) => {
                 }
             } catch (proFallbackError) {
                 console.error("Server for Rudra here: Both Flash and Pro models failed for general chat.", proFallbackError);
-                throw proFallbackError; 
+                throw proFallbackError; // बाहरी कैच ब्लॉक में फेंकें
             }
         } else {
+            // यदि यह एक स्पष्ट कोड रिक्वेस्ट थी और codeGenerator विफल रहा, तो त्रुटि को आगे बढ़ाएं
             throw modelError; 
         }
     }
 
     console.log(`Server for Rudra here: Gemini AI responded using ${modelUsed}:`, responseText);
-    res.json({ text: responseText, voiceLangCode: voiceLangCode }); 
+    res.json({ text: responseText }); 
 
-});
+}); // <--- YE AAKHRI CURLY BRACE app.post function ko band karta hai. Iske baad koi catch block nahin hona chahiye.
 
+// --- Basic Root Endpoint ---
 app.get('/', (req, res) => {
     res.send('My Custom Gemini API Proxy Server for Rudra here is running!');
 });
 
+// --- Start the server ---
 app.listen(port, () => {
     console.log(`My Custom Gemini API Proxy Server for Rudra here listening on port ${port}`);
 });
