@@ -1,4 +1,4 @@
-const express = require('express');
+Const express = require('express');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const cors = require('cors');
 require('dotenv').config(); // Load environment variables from .env file for local development
@@ -35,34 +35,65 @@ if (GEMINI_API_KEY && GEMINI_API_KEY !== "YOUR_ACTUAL_GEMINI_API_KEY_HERE") {
 
 // --- API Endpoint: / ---
 app.post('/', async (req, res) => {
-    const userMessage = req.body.prompt; 
+    // --- CHANGES START HERE ---
+    // User message aur prompt se language instruction extract karein
+    const userMessageFull = req.body.prompt; // Ye ab full prompt hoga jisme language instruction bhi hogi
     const senderID = req.body.senderID || 'anonymous_user'; 
 
-    if (!userMessage) {
+    if (!userMessageFull) {
         console.warn("Server for Rudra here: Received chat request with no 'prompt' in body.");
         return res.status(400).json({ error: "Prompt parameter is required in the request body." });
     }
 
-    console.log(`Server for Rudra here: Received chat message from ${senderID}: "${userMessage}"`);
+    console.log(`Server for Rudra here: Received full prompt from ${senderID}: "${userMessageFull}"`);
 
     let responseText = '';
     let modelUsed = '';
 
+    // --- Extracting actual user message and language instruction ---
+    // Hum Riya.js se aane wale prompt ko 'LANGUAGE_INSTRUCTION: [instruction] ACTUAL_PROMPT: [user message]' format mein expect kar rahe hain
+    let languageInstruction = '';
+    let actualUserMessageForAI = userMessageFull; // By default, full message hi AI prompt hoga
+
+    const langInstructionPrefix = "LANGUAGE_INSTRUCTION:";
+    const actualPromptPrefix = "ACTUAL_PROMPT:";
+
+    if (userMessageFull.startsWith(langInstructionPrefix)) {
+        const parts = userMessageFull.split(actualPromptPrefix);
+        if (parts.length > 1) {
+            languageInstruction = parts[0].replace(langInstructionPrefix, '').trim();
+            actualUserMessageForAI = parts[1].trim();
+            console.log(`Server for Rudra here: Language Instruction: "${languageInstruction}"`);
+            console.log(`Server for Rudra here: Actual User Message for AI: "${actualUserMessageForAI}"`);
+        }
+    }
+    // --- CHANGES END HERE ---
+
+
     // --- कोड जनरेशन कमांड की जांच करें ---
     const CODE_GEN_PREFIX = "CODE_GEN_REQUEST:";
-    const isExplicitCodeGenerationRequest = userMessage.startsWith(CODE_GEN_PREFIX);
+    // Ab check actualUserMessageForAI par hoga
+    const isExplicitCodeGenerationRequest = actualUserMessageForAI.startsWith(CODE_GEN_PREFIX);
 
-    let actualPromptForAI = userMessage;
+    let finalPromptToGemini = actualUserMessageForAI; // Ye prompt Gemini ko bhejenge
     if (isExplicitCodeGenerationRequest) {
-        actualPromptForAI = userMessage.slice(CODE_GEN_PREFIX.length).trim();
-        console.log(`Server for Rudra here: Explicit code request detected. Actual prompt: "${actualPromptForAI}"`);
+        finalPromptToGemini = actualUserMessageForAI.slice(CODE_GEN_PREFIX.length).trim();
+        console.log(`Server for Rudra here: Explicit code request detected. Final prompt for code generation: "${finalPromptToGemini}"`);
+    } else {
+        // --- CHANGES START HERE ---
+        // General chat ke liye, language instruction ko actual prompt mein jod do
+        if (languageInstruction) {
+            finalPromptToGemini = `${languageInstruction} ${actualUserMessageForAI}`;
+        }
+        console.log(`Server for Rudra here: Final prompt to Gemini for general chat: "${finalPromptToGemini}"`);
+        // --- CHANGES END HERE ---
     }
-
+    
     try {
         if (isExplicitCodeGenerationRequest) {
             // यदि स्पष्ट कोड जनरेशन रिक्वेस्ट है, तो codeGenerator का उपयोग करें
             console.log("Server for Rudra here: Using codeGenerator for explicit code request.");
-            const codeResponse = await codeGenerator.generateCode(actualPromptForAI, genAI);
+            const codeResponse = await codeGenerator.generateCode(finalPromptToGemini, genAI); // finalPromptToGemini pass kiya
             responseText = codeResponse.text;
             modelUsed = codeResponse.model;
         } else {
@@ -76,7 +107,7 @@ app.post('/', async (req, res) => {
                     temperature: 0.7,     
                 },
             });
-            const flashResult = await flashChat.sendMessage(userMessage); // यहां पूरा userMessage भेजें
+            const flashResult = await flashChat.sendMessage(finalPromptToGemini); // yahan finalPromptToGemini bhejenge
             responseText = flashResult.response.text();
             modelUsed = 'gemini-1.5-flash';
 
@@ -88,6 +119,8 @@ app.post('/', async (req, res) => {
     } catch (modelError) { // त्रुटि हैंडलिंग को स्पष्ट किया गया
         if (isExplicitCodeGenerationRequest) {
             console.error("Server for Rudra here: Error during explicit code generation:", modelError);
+            // Agar code generation mein error aaye to, ek generic error response bhej do
+            return res.status(500).json({ error: `Code generation failed: ${modelError.message || "Unknown error"}` });
         } else {
             console.warn(`Server for Rudra here: Flash model failed (${modelError.message}), attempting with gemini-1.5-pro for general chat...`);
         }
@@ -102,7 +135,7 @@ app.post('/', async (req, res) => {
                         temperature: 0.7,
                     },
                 });
-                const proResult = await proChat.sendMessage(userMessage); // यहां पूरा userMessage भेजें
+                const proResult = await proChat.sendMessage(finalPromptToGemini); // yahan finalPromptToGemini bhejenge
                 responseText = proResult.response.text();
                 modelUsed = 'gemini-1.5-pro';
 
@@ -111,18 +144,20 @@ app.post('/', async (req, res) => {
                 }
             } catch (proFallbackError) {
                 console.error("Server for Rudra here: Both Flash and Pro models failed for general chat.", proFallbackError);
-                throw proFallbackError; // बाहरी कैच ब्लॉक में फेंकें
+                // Dono models fail ho gaye toh client ko error bhejo
+                return res.status(500).json({ error: `AI models failed to respond: ${proFallbackError.message || "Unknown error"}` });
             }
         } else {
             // यदि यह एक स्पष्ट कोड रिक्वेस्ट थी और codeGenerator विफल रहा, तो त्रुटि को आगे बढ़ाएं
-            throw modelError; 
+            // Isko upar handle kar liya gaya hai `return res.status(500)` se
+            // throw modelError; 
         }
     }
 
     console.log(`Server for Rudra here: Gemini AI responded using ${modelUsed}:`, responseText);
     res.json({ text: responseText }); 
 
-}); // <--- YE AAKHRI CURLY BRACE app.post function ko band karta hai. Iske baad koi catch block nahin hona chahiye.
+}); 
 
 // --- Basic Root Endpoint ---
 app.get('/', (req, res) => {
