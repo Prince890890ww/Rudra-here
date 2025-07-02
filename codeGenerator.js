@@ -1,26 +1,28 @@
 const { GoogleGenerativeAI } = require('@google/generative-ai');
+const OpenAI = require('openai');
+
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY
+});
 
 /**
- * Gemini API का उपयोग करके कोड जनरेट करता है।
- * यह फ़ंक्शन मुख्य रूप से कोड-संबंधित प्रॉम्प्ट को संभालने के लिए है।
- * @param {string} prompt - कोड जनरेशन के लिए उपयोगकर्ता का प्रॉम्प्ट।
- * @param {GoogleGenerativeAI} genAIInstance - GoogleGenerativeAI इंस्टेंस।
- * @returns {Promise<{text: string, model: string}>} - जनरेट किया गया कोड और उपयोग किया गया मॉडल।
+ * Gemini ya OpenAI का उपयोग करके कोड जनरेट करता है।
+ * @param {string} prompt - कोड जनरेशन के लिए यूज़र का प्रॉम्प्ट
+ * @param {GoogleGenerativeAI} genAIInstance - GoogleGenerativeAI इंस्टेंस
+ * @returns {Promise<{text: string, model: string}>}
  */
 async function generateCode(prompt, genAIInstance) {
     let responseText = '';
     let modelUsed = '';
 
     try {
-        // कोड जनरेशन के लिए सीधे gemini-1.5-pro का उपयोग करें
-        // क्योंकि यह अधिक जटिल कोड को संभालने में बेहतर है।
-        console.log("CodeGenerator: Attempting code generation with gemini-1.5-pro...");
+        console.log("CodeGenerator: Trying with gemini-1.5-pro...");
         const model = genAIInstance.getGenerativeModel({ model: "gemini-1.5-pro" });
 
         const chat = model.startChat({
             generationConfig: {
-                maxOutputTokens: 1000, // कोड के लिए अधिक आउटपुट टोकन की अनुमति दें
-                temperature: 0.2,      // सटीकता के लिए तापमान कम रखें
+                maxOutputTokens: 1000,
+                temperature: 0.2,
                 topP: 0.9,
                 topK: 40,
             },
@@ -31,13 +33,30 @@ async function generateCode(prompt, genAIInstance) {
         modelUsed = 'gemini-1.5-pro';
 
         if (!responseText || responseText.trim() === '') {
-            throw new Error("Gemini 1.5 Pro model returned empty response for code generation.");
+            throw new Error("Gemini 1.5 Pro returned empty.");
         }
 
     } catch (error) {
-        console.error("CodeGenerator: Error generating code with gemini-1.5-pro:", error);
-        // त्रुटि को फिर से फेंकें ताकि server.js इसे पकड़ सके
-        throw error;
+        console.error("CodeGenerator: Gemini failed, trying OpenAI...", error);
+
+        // === Fallback to OpenAI ===
+        try {
+            const response = await openai.chat.completions.create({
+                model: "gpt-3.5-turbo",
+                messages: [{ role: "user", content: prompt }],
+            });
+
+            responseText = response.choices[0]?.message?.content || '';
+            modelUsed = 'openai-gpt-3.5';
+
+            if (!responseText.trim()) {
+                throw new Error("OpenAI GPT-3.5 also returned empty response.");
+            }
+
+        } catch (openaiError) {
+            console.error("CodeGenerator: OpenAI GPT-3.5 fallback failed:", openaiError);
+            throw openaiError;
+        }
     }
 
     return { text: responseText, model: modelUsed };
@@ -46,4 +65,3 @@ async function generateCode(prompt, genAIInstance) {
 module.exports = {
     generateCode
 };
-
