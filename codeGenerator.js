@@ -1,12 +1,12 @@
 const { GoogleGenerativeAI } = require('@google/generative-ai');
-const OpenAI = require('openai');
+// const OpenAI = require('openai'); // OpenAI import hata diya gaya hai
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
-});
+// const openai = new OpenAI({ // OpenAI instance hata diya gaya hai
+//   apiKey: process.env.OPENAI_API_KEY
+// });
 
 /**
- * Gemini ya OpenAI का उपयोग करके कोड जनरेट करता है।
+ * Gemini का उपयोग करके कोड जनरेट करता है।
  * @param {string} prompt - कोड जनरेशन के लिए यूज़र का प्रॉम्प्ट
  * @param {GoogleGenerativeAI} genAIInstance - GoogleGenerativeAI इंस्टेंस
  * @returns {Promise<{text: string, model: string}>}
@@ -33,30 +33,12 @@ async function generateCode(prompt, genAIInstance) {
         modelUsed = 'gemini-1.5-pro';
 
         if (!responseText || responseText.trim() === '') {
-            throw new Error("Gemini 1.5 Pro returned empty.");
+            throw new Error("Gemini 1.5 Pro returned empty response. No fallback available."); // Error message update kiya gaya hai
         }
 
     } catch (error) {
-        console.error("CodeGenerator: Gemini failed, trying OpenAI...", error);
-
-        // === Fallback to OpenAI ===
-        try {
-            const response = await openai.chat.completions.create({
-                model: "gpt-3.5-turbo",
-                messages: [{ role: "user", content: prompt }],
-            });
-
-            responseText = response.choices[0]?.message?.content || '';
-            modelUsed = 'openai-gpt-3.5';
-
-            if (!responseText.trim()) {
-                throw new Error("OpenAI GPT-3.5 also returned empty response.");
-            }
-
-        } catch (openaiError) {
-            console.error("CodeGenerator: OpenAI GPT-3.5 fallback failed:", openaiError);
-            throw openaiError;
-        }
+        console.error("CodeGenerator: Gemini failed, no other fallback available:", error); // Console error message update kiya gaya hai
+        throw error; // Seedha error throw karega, OpenAI fallback nahi hai ab
     }
 
     return { text: responseText, model: modelUsed };
