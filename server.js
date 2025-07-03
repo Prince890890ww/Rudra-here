@@ -1,6 +1,5 @@
 const express = require('express');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
-const OpenAI = require('openai');
 const cors = require('cors');
 require('dotenv').config(); // For local .env use
 
@@ -14,7 +13,6 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
 let genAI;
 if (GEMINI_API_KEY) {
@@ -28,25 +26,6 @@ if (GEMINI_API_KEY) {
 } else {
     console.error("❌ GEMINI_API_KEY not set.");
     process.exit(1);
-}
-
-const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
-
-// === OpenAI Fallback ===
-async function fallbackToOpenAI(fullPrompt) {
-    try {
-        console.log("⚠️ Falling back to OpenAI GPT-3.5...");
-        const response = await openai.chat.completions.create({
-            model: "gpt-3.5-turbo",
-            messages: [{ role: "user", content: fullPrompt }],
-        });
-        const openaiReply = response.choices[0]?.message?.content || '';
-        if (!openaiReply.trim()) throw new Error("OpenAI returned empty response.");
-        return { text: openaiReply, model: 'openai-gpt-3.5' };
-    } catch (err) {
-        console.error("❌ OpenAI GPT-3.5 fallback failed.", err);
-        throw err;
-    }
 }
 
 // === Main Chat Endpoint ===
@@ -106,7 +85,7 @@ app.post('/', async (req, res) => {
             modelUsed = 'gemini-1.5-flash';
 
             if (!responseText || responseText.trim() === '') {
-                throw new Error("⚠️ Flash returned empty response.");
+                throw new Error("⚠️ Flash returned empty response, trying gemini-1.5-pro...");
             }
         }
 
@@ -125,19 +104,13 @@ app.post('/', async (req, res) => {
             modelUsed = 'gemini-1.5-pro';
 
             if (!responseText || responseText.trim() === '') {
-                throw new Error("⚠️ Pro also returned empty response.");
+                throw new Error("⚠️ Pro also returned empty response. No fallback available.");
             }
 
         } catch (proFallbackError) {
             console.error("❌ Both Gemini models failed:", proFallbackError);
-
-            try {
-                const openaiResult = await fallbackToOpenAI(finalPromptToGemini);
-                responseText = openaiResult.text;
-                modelUsed = openaiResult.model;
-            } catch (finalAIError) {
-                return res.status(500).json({ error: `All AI models failed: ${finalAIError.message || "Unknown error"}` });
-            }
+            // OpenAI fallback removed, so we just return an error
+            return res.status(500).json({ error: `All configured AI models failed: ${proFallbackError.message || "Unknown error"}` });
         }
     }
 
