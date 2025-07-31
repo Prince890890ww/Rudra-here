@@ -12,12 +12,12 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+const AIzaSyB83dZuLbqROrGuldLVgVKqxwpBYrc65ks = process.env.GEMINI_API_KEY;
 
 let genAI;
-if (GEMINI_API_KEY) {
+if (AIzaSyB83dZuLbqROrGuldLVgVKqxwpBYrc65ks) {
     try {
-        genAI = new GoogleGenerativeAI(AIzaSyBrNcbr12fsWFGknPpmWIMtUUAd6yKRHt0);
+        genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
         console.log("✅ Gemini AI client initialized.");
     } catch (error) {
         console.error("❌ Error initializing Gemini AI:", error.message);
