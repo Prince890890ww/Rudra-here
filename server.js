@@ -12,7 +12,7 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-const GEMINI_API_KEY = process.env.AIzaSyBrNcbr12fsWFGknPpmWIMtUUAd6yKRHt0;
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
 let genAI;
 if (GEMINI_API_KEY) {
