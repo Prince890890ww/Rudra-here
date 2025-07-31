@@ -17,7 +17,7 @@ const GEMINI_API_KEY = process.env.AIzaSyBrNcbr12fsWFGknPpmWIMtUUAd6yKRHt0;
 let genAI;
 if (GEMINI_API_KEY) {
     try {
-        genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+        genAI = new GoogleGenerativeAI(AIzaSyBrNcbr12fsWFGknPpmWIMtUUAd6yKRHt0);
         console.log("✅ Gemini AI client initialized.");
     } catch (error) {
         console.error("❌ Error initializing Gemini AI:", error.message);
